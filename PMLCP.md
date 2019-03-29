@@ -1,0 +1,211 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Wang Xuezhi"
+date: "2019,3,28"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+
+
+##Synopsis
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways,build a model to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+##Data Source
+The training data for this project are available here:
+(Training data)[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv]
+
+The test data are available here:
+(Test data)[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv]
+
+For more information about the Dataset:
+(More information about the Dataset)[http://groupware.les.inf.puc-rio.br/har]
+
+##Library and Load the data
+
+```r
+library(caret)
+```
+
+```
+## Warning: package 'caret' was built under R version 3.5.3
+```
+
+```
+## Loading required package: lattice
+```
+
+```
+## Loading required package: ggplot2
+```
+
+```r
+library(ggplot2)
+Origintraining<-read.csv("pml-training.csv")
+Origintesting<-read.csv("pml-testing.csv")
+```
+
+##Exploratory Data Analysis.
+
+```r
+dim(Origintraining)
+```
+
+```
+## [1] 19622   160
+```
+
+```r
+dim(Origintesting)
+```
+
+```
+## [1]  20 160
+```
+Both datasets have 160 columes, training set has 19622 ovserves, testing set has 20 observes.
+
+Use function apply to sum the NA in each columes. Plot the distribution of numbers of NA.
+
+```r
+NAcol<-apply(Origintraining,2,function(x){sum(is.na(x))})
+summary(NAcol)
+```
+
+```
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##       0       0       0    8047   19216   19216
+```
+
+```r
+hist(NAcol,col="green",main="The distribution of numbers of NA in each colume")
+```
+
+![](PMLCP_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
+Through the plot, we can see there is a lot of columes containing 19216 NA out of 19622 observes. These variables are obviously not meaningful for model building. We only pick variables that contain 0 NA.
+
+```r
+Rtraining<-Origintraining[,which(NAcol==0)]
+Rtesting<-Origintesting[,which(NAcol==0)]
+```
+By now, the dataset "Rtraining"and"Rtesting" have 93 variables respectively.
+
+##Data preprocessing
+
+####Select numeric columes , then do standardizing on both training and testing set.
+
+```r
+numcol<-which(lapply(Rtraining,class)%in%"numeric")
+prepro<-preProcess(Rtraining[,numcol],method=c('center','scale'))
+trainingpre<-predict(prepro,Rtraining[,numcol])
+trainingpre$classe<-Rtraining$classe
+testingpre<-predict(prepro,Rtesting[,numcol])
+```
+By now, the datasets have 28 variables.
+
+####Removing the non zero Variables
+
+```r
+Nonzero<-nearZeroVar(trainingpre,saveMetrics=TRUE)
+trainingpre1<-trainingpre[,Nonzero$nzv==FALSE]
+```
+The result dataset "trainingpre1" contains 28 variables too, it means there isn't non zero Variables in dataset"trainingpre".
+
+####PCA analysis
+
+```r
+prePCA<-preProcess(trainingpre1[,-28],method="pca")
+trainPCA<-predict(prePCA,trainingpre1[,-28])
+trainPCA<-data.frame(trainPCA,classe=trainingpre1$classe)
+testPCA<-predict(prePCA,testingpre[,-28])
+```
+The result dataset "trainPCA" has 19 variables, dataset"testPCA" has 18 variables, the missing one is the movement type"classe" which we are going to predict through model.
+
+##Create cross validation set
+
+Consider the RAM is limited, the training process can not be proceed properly if the training dataset exceeds a certain size.
+Set p=.5, the training process halted.
+Set p=.25, the model accuracy is not good.
+Set p=.4,the training process passed and the accuracy is acceptable.
+
+```r
+set.seed(1)
+
+inTrain<-createDataPartition(y=trainingpre1$classe,p=.6,list=FALSE)
+straining<-trainPCA[inTrain,]
+stesting<-trainPCA[-inTrain,]
+```
+
+##Train model
+Use method"Tree","Random Forest"and "lda" to train a model, then test the accuracy on the training set itself.
+
+Train with tree model, and get the accuracy.
+
+```r
+modtree<-train(classe~.,method="rpart",metric="Accuracy",data=straining)
+treepre<-predict(modtree,straining)
+treeaccu<-confusionMatrix(treepre,straining$classe)
+treeaccu$overall[1]
+```
+
+```
+##  Accuracy 
+## 0.3541101
+```
+
+Train with Randon Forest, and get the accuracy.
+
+```r
+modrf<-train(classe~.,method="rf",metric="Accuracy",data=straining)
+rfpre<-predict(modrf,straining)
+rfaccu<-confusionMatrix(rfpre,straining$classe)
+rfaccu$overall[1]
+```
+
+```
+## Accuracy 
+##        1
+```
+
+Train with LDA, and get the accuracy.
+
+```r
+modlda<-train(classe~.,method="lda",metric="Accuracy",data=straining)
+ldapre<-predict(modlda,straining)
+ldaaccu<-confusionMatrix(ldapre,straining$classe)
+ldaaccu$overall[1]
+```
+
+```
+##  Accuracy 
+## 0.4528702
+```
+From above, we can see only model built with Random Forest resulted in acceptable accuracy.
+
+
+##Cross validation
+Use the cross validation test set to verify the accuracy of the model.
+
+```r
+rftes<-predict(modrf,stesting)
+CVaccu<-confusionMatrix(rftes,stesting$classe)
+CVaccu$overall[1]
+```
+
+```
+##  Accuracy 
+## 0.9622738
+```
+
+
+##Predict on test dataset
+Apply the Random Forest model to the test dataset to get the predict.
+
+```r
+predict(modrf,testPCA)
+```
+
+```
+##  [1] B A B A A E D B A A B C B A E E A B B B
+## Levels: A B C D E
+```
