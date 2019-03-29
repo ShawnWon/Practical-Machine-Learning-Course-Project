@@ -33,27 +33,28 @@ Origintesting<-read.csv("pml-testing.csv")
 
 ##Imputing the data set.
 
-Calculate the number of NA of each columes,put the result in variable NAVar.
+Use preprocess function of "knnImpute" to imputting the origin dataset.
 
 ```{r}
+ImpObj<-preProcess(Origintraining[,-160],method="knnImpute")
+Rtraining<-predict(ImpObj,Origintraining[,-160])
+Rtraining$classe<-Origintraining$classe
 
+Rtesting<-predict(ImpObj,Origintesting[,-160])
+Rtesting<-data.frame(Rtesting,classe=Origintesting$problem_id)
 
-NAVar<-apply(Rtraining,2,function(x){sum(is.na(x))})
-Rawtraining<-Rtraining[,which(NAVar==0)]
-
-Rawtesting<-Origintesting[,which(NAVar==0)]
 ```
 
 
 ##Data preprocessing
 ```{r}
-numcol<-which(lapply(Rawtraining,class)%in%"numeric")
-prepro<-preProcess(Rawtraining[,numcol],method=c('knnImpute','center','scale'))
-trainingpre<-predict(prepro,Rawtraining[,numcol])
-trainingpre$classe<-Rawtraining$classe
+numcol<-which(lapply(Rtraining,class)%in%"numeric")
+prepro<-preProcess(Rtraining[,numcol],method=c('center','scale'))
+trainingpre<-predict(prepro,Rtraining[,numcol])
+trainingpre$classe<-Rtraining$classe
 ##numcol<-which(lapply(Rawtesting,class)%in%"numeric")
 ##prepro<-preProcess(Rawtesting[,numcol],method=c('knnImpute','center','scale'))
-testingpre<-predict(prepro,Rawtesting[,numcol])
+testingpre<-predict(prepro,Rtesting[,numcol])
 
 
 ```
@@ -66,6 +67,16 @@ trainingpre1<-trainingpre[,Nonzero$nzv==FALSE]
 ##Nonzero<-nearZeroVar(testingpre,saveMetrics=TRUE)
 ##testingpre1<-testingpre[,Nonzero$nzv==FALSE]
 ```
+##PCA analysis
+
+```{r}
+prePCA<-preProcess(trainingpre1[,-124],method="pca")
+trainPCA<-predict(prePCA,trainingpre1[,-124])
+trainPCA<-data.frame(trainPCA,classe=trainingpre1$classe)
+
+testPCA<-predict(prePCA,testingpre[,-124])
+
+```
 
 
 ##Create cross validation set
@@ -73,9 +84,9 @@ trainingpre1<-trainingpre[,Nonzero$nzv==FALSE]
 ```{r}
 set.seed(1)
 
-inTrain<-createDataPartition(y=trainingpre1$classe,p=.75,list=FALSE)
-straining<-trainingpre1[inTrain,]
-stesting<-trainingpre1[-inTrain,]
+inTrain<-createDataPartition(y=trainingpre1$classe,p=.5,list=FALSE)
+straining<-trainPCA[-inTrain,]
+stesting<-trainPCA[inTrain,]
 ```
 
 ##Train model
@@ -90,7 +101,7 @@ treeaccu$overall[1]
 
 Train with Randon Forest, and get the accuracy.
 ```{r}
-modrf<-train(classe~.,method="rf",data=straining)
+modrf<-train(classe~.,method="rf",data=straining,trControl=trainControl(method="cv"),number=5,allowParallel=TRUE)
 rfpre<-predict(modrf,straining)
 rfaccu<-confusionMatrix(rfpre,straining$classe)
 rfaccu$overall[1]
@@ -104,4 +115,16 @@ ldaaccu<-confusionMatrix(ldapre,straining$classe)
 ldaaccu$overall[1]
 ```
 
+##Cross validation
 
+```{r}
+rftes<-predict(modrf,stesting)
+CVaccu<-confusionMatrix(rftes,stesting$classe)
+CVaccu$overall[1]
+```
+
+
+##Predict on test dataset
+```{r}
+predict(modrf,testPCA)
+```
