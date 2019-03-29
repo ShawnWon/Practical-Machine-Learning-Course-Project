@@ -26,74 +26,79 @@ For more information about the Dataset:
 ```{r}
 library(caret)
 library(ggplot2)
-library(plyr)
 Origintraining<-read.csv("pml-training.csv")
 Origintesting<-read.csv("pml-testing.csv")
 ```
 
-##Imputing the data set.
-
-Use preprocess function of "knnImpute" to imputting the origin dataset.
-
+##Exploratory Data Analysis.
 ```{r}
-ImpObj<-preProcess(Origintraining[,-160],method="knnImpute")
-Rtraining<-predict(ImpObj,Origintraining[,-160])
-Rtraining$classe<-Origintraining$classe
+dim(Origintraining)
+dim(Origintesting)
+```
+Both datasets have 160 columes, training set has 19622 ovserves, testing set has 20 observes.
 
-Rtesting<-predict(ImpObj,Origintesting[,-160])
-Rtesting<-data.frame(Rtesting,classe=Origintesting$problem_id)
+Use function apply to sum the NA in each columes. Plot the distribution of numbers of NA.
+```{r}
+NAcol<-apply(Origintraining,2,function(x){sum(is.na(x))})
+summary(NAcol)
+hist(NAcol,col="green",main="The distribution of numbers of NA in each colume")
+```
+Through the plot, we can see there is a lot of columes containing 19216 NA out of 19622 observes. These variables are obviously not meaningful for model building. We only pick variables that contain 0 NA.
+```{r}
+Rtraining<-Origintraining[,which(NAcol==0)]
+Rtesting<-Origintesting[,which(NAcol==0)]
 
 ```
-
+By now, the dataset "Rtraining"and"Rtesting" have 93 variables respectively.
 
 ##Data preprocessing
+
+####Select numeric columes , then do standardizing on both training and testing set.
 ```{r}
 numcol<-which(lapply(Rtraining,class)%in%"numeric")
 prepro<-preProcess(Rtraining[,numcol],method=c('center','scale'))
 trainingpre<-predict(prepro,Rtraining[,numcol])
 trainingpre$classe<-Rtraining$classe
-##numcol<-which(lapply(Rawtesting,class)%in%"numeric")
-##prepro<-preProcess(Rawtesting[,numcol],method=c('knnImpute','center','scale'))
 testingpre<-predict(prepro,Rtesting[,numcol])
-
-
 ```
+By now, the datasets have 28 variables.
 
-##Removing the non zero Variables
+####Removing the non zero Variables
 ```{r}
 Nonzero<-nearZeroVar(trainingpre,saveMetrics=TRUE)
 trainingpre1<-trainingpre[,Nonzero$nzv==FALSE]
-
-##Nonzero<-nearZeroVar(testingpre,saveMetrics=TRUE)
-##testingpre1<-testingpre[,Nonzero$nzv==FALSE]
 ```
-##PCA analysis
+The result dataset "trainingpre1" contains 28 variables too, it means there isn't non zero Variables in dataset"trainingpre".
 
+####PCA analysis
 ```{r}
-prePCA<-preProcess(trainingpre1[,-124],method="pca")
-trainPCA<-predict(prePCA,trainingpre1[,-124])
+prePCA<-preProcess(trainingpre1[,-28],method="pca")
+trainPCA<-predict(prePCA,trainingpre1[,-28])
 trainPCA<-data.frame(trainPCA,classe=trainingpre1$classe)
-
-testPCA<-predict(prePCA,testingpre[,-124])
-
+testPCA<-predict(prePCA,testingpre[,-28])
 ```
-
+The result dataset "trainPCA" has 19 variables, dataset"testPCA" has 18 variables, the missing one is the movement type"classe" which we are going to predict through model.
 
 ##Create cross validation set
 
+Consider the RAM is limited, the training process can not be proceed properly if the training dataset exceeds a certain size.
+Set p=.5, the training process halted.
+Set p=.25, the model accuracy is not good.
+Set p=.4,the training process passed and the accuracy is acceptable.
 ```{r}
 set.seed(1)
 
-inTrain<-createDataPartition(y=trainingpre1$classe,p=.5,list=FALSE)
-straining<-trainPCA[-inTrain,]
-stesting<-trainPCA[inTrain,]
+inTrain<-createDataPartition(y=trainingpre1$classe,p=.6,list=FALSE)
+straining<-trainPCA[inTrain,]
+stesting<-trainPCA[-inTrain,]
 ```
 
 ##Train model
+Use method"Tree","Random Forest"and "lda" to train a model, then test the accuracy on the training set itself.
 
 Train with tree model, and get the accuracy.
 ```{r}
-modtree<-train(classe~.,method="rpart",data=straining)
+modtree<-train(classe~.,method="rpart",metric="Accuracy",data=straining)
 treepre<-predict(modtree,straining)
 treeaccu<-confusionMatrix(treepre,straining$classe)
 treeaccu$overall[1]
@@ -101,7 +106,7 @@ treeaccu$overall[1]
 
 Train with Randon Forest, and get the accuracy.
 ```{r}
-modrf<-train(classe~.,method="rf",data=straining,trControl=trainControl(method="cv"),number=5,allowParallel=TRUE)
+modrf<-train(classe~.,method="rf",metric="Accuracy",data=straining)
 rfpre<-predict(modrf,straining)
 rfaccu<-confusionMatrix(rfpre,straining$classe)
 rfaccu$overall[1]
@@ -109,14 +114,16 @@ rfaccu$overall[1]
 
 Train with LDA, and get the accuracy.
 ```{r}
-modlda<-train(classe~.,method="lda",data=straining)
+modlda<-train(classe~.,method="lda",metric="Accuracy",data=straining)
 ldapre<-predict(modlda,straining)
 ldaaccu<-confusionMatrix(ldapre,straining$classe)
 ldaaccu$overall[1]
 ```
+From above, we can see only model built with Random Forest resulted in acceptable accuracy.
+
 
 ##Cross validation
-
+Use the cross validation test set to verify the accuracy of the model.
 ```{r}
 rftes<-predict(modrf,stesting)
 CVaccu<-confusionMatrix(rftes,stesting$classe)
@@ -125,6 +132,7 @@ CVaccu$overall[1]
 
 
 ##Predict on test dataset
+Apply the Random Forest model to the test dataset to get the predict.
 ```{r}
 predict(modrf,testPCA)
 ```
